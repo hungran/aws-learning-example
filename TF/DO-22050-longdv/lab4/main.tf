@@ -1,16 +1,19 @@
 provider "aws" {
   region = "ap-southeast-1"
+  default_tags {
+    tags = {
+      Environment = "dev"
+      Project     = "longdv-lab4"
+    }
+  }
 }
+
 //vpc
 resource "aws_vpc" "vpc" {
   cidr_block = var.vpc_cidr
-  tags = {
-    Name        = "${var.project_name}"
-    Description = "VPC main"
-  }
 }
 //public + private subnet
-resource "aws_subnet" "public_subnet" {
+resource "aws_subnet" "public" {
   vpc_id     = aws_vpc.vpc.id
   cidr_block = var.public_subnet_cidr
   tags = {
@@ -19,7 +22,7 @@ resource "aws_subnet" "public_subnet" {
   }
 }
 
-resource "aws_subnet" "private_subnet" {
+resource "aws_subnet" "private" {
   vpc_id     = aws_vpc.vpc.id
   cidr_block = var.private_subnet_cidr
   tags = {
@@ -28,7 +31,7 @@ resource "aws_subnet" "private_subnet" {
   }
 }
 //main gateway
-resource "aws_internet_gateway" "gw" {
+resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.vpc.id
 
   tags = {
@@ -43,14 +46,14 @@ resource "aws_eip" "elastic_nat_gw" {
 //nat gateway
 resource "aws_nat_gateway" "nat_gw" {
   allocation_id = aws_eip.elastic_nat_gw.id
-  subnet_id     = aws_subnet.private_subnet.id
+  subnet_id     = aws_subnet.private.id
 
   tags = {
     Name        = "${var.project_name}-nat_gw"
     Description = "Nat gateway"
   }
 
-  depends_on = [aws_internet_gateway.gw]
+  depends_on = [aws_internet_gateway.igw]
 }
 //public + private route table
 resource "aws_route_table" "public_route_table" {
@@ -58,7 +61,7 @@ resource "aws_route_table" "public_route_table" {
 
   route {
     cidr_block = var.all_ip
-    gateway_id = aws_internet_gateway.gw.id
+    gateway_id = aws_internet_gateway.igw.id
   }
 
   tags = {
@@ -67,7 +70,7 @@ resource "aws_route_table" "public_route_table" {
   }
 }
 
-resource "aws_route_table" "private_route_table" {
+resource "aws_route_table" "rtb_private" {
   vpc_id = aws_vpc.vpc.id
 
   route {
@@ -83,13 +86,13 @@ resource "aws_route_table" "private_route_table" {
 
 //connect route table to subnet
 resource "aws_route_table_association" "route_public_subnet" {
-  subnet_id      = aws_subnet.public_subnet.id
+  subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public_route_table.id
 }
 
 resource "aws_route_table_association" "route_private_subnet" {
-  subnet_id      = aws_subnet.private_subnet.id
-  route_table_id = aws_route_table.private_route_table.id
+  subnet_id      = aws_subnet.private.id
+  route_table_id = aws_route_table.rtb_private.id
 }
 
 //data source
@@ -108,9 +111,9 @@ data "aws_ami" "linux" {
 resource "aws_instance" "public_instance" {
   ami                         = data.aws_ami.linux.id
   instance_type               = var.instance_type
-  subnet_id                   = aws_subnet.public_subnet.id
+  subnet_id                   = aws_subnet.public.id
   associate_public_ip_address = true
-  
+
   tags = {
     Name        = "${var.project_name}-public_instance"
     Description = "ec2 instance in public subnet"
@@ -120,7 +123,7 @@ resource "aws_instance" "public_instance" {
 resource "aws_instance" "private_instance" {
   ami           = data.aws_ami.linux.id
   instance_type = var.instance_type
-  subnet_id     = aws_subnet.private_subnet.id
+  subnet_id     = aws_subnet.private.id
 
   tags = {
     Name        = "${var.project_name}-private_instance"
@@ -133,6 +136,6 @@ resource "aws_eip" "eip_vcp" {
 }
 
 resource "aws_eip_association" "eip_association_public_instance" {
-    instance_id = aws_instance.public_instance.id
-    allocation_id = aws_eip.eip_vcp.id
+  instance_id   = aws_instance.public_instance.id
+  allocation_id = aws_eip.eip_vcp.id
 }
